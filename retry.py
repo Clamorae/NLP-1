@@ -1,4 +1,5 @@
 import os
+import random as rand
 from gensim.models import Word2Vec
 
 with open('./NLP/NLP-1/train.txt','r') as f:
@@ -23,10 +24,25 @@ with open('./NLP/NLP-1/example.txt','w') as f:
             current_word.append(separate[0])
             current_label.append(separate[1].split('\n')[0])
 
+# split the dataset using the 80/20
+train_sentences = []
+train_label = []
+val_sentences = []
+vald_label = []
+for i in len(sentences):
+    x = rand.randint(1,100)
+    if x>80:
+        val_sentences.append(sentences[i])
+        vald_label.append(label[i])
+    else:
+        train_sentences.append(sentences[i])
+        train_label.append(label[i])
+
+
+#use word2vec to create a model and a vocabulary
+word_emb_dim = 128
 path = "./NLP/NLP-1/word2vec.model"
-model = Word2Vec(sentences=sentences, vector_size=100, window=5, min_count=1, workers=4,sg=1)
+model = Word2Vec(sentences=train_sentences, vector_size=128, window=5, min_count=1, workers=4,sg=1)
 model.save(path)
 model = Word2Vec.load(path)
-
-vocabulary = list(model.wv.key_to_index)
 
