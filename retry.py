@@ -1,4 +1,6 @@
 import helper
+import computational_func as cf
+
 import random as rand
 from torch.utils.data import DataLoader
 from gensim.models import Word2Vec
