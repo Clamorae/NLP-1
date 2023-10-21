@@ -1,18 +1,33 @@
 import helper
+import time
+import torch
 import computational_func as cf
 
 import random as rand
+import torch.nn as nn
 from torch.utils.data import DataLoader
 from gensim.models import Word2Vec
 
-with open('./NLP/NLP-1/train.txt','r') as f:
+path = "./NLP/NLP-1/"
+with open(path+'train.txt','r') as f:
     lines = f.readlines()
 
+#Constant (Hyperparameters)
+EPOCHS = 20
+num_layers = 4
+d_model = 128
+dff = 512
+num_heads = 8
+label_size = 10
+dropout_rate = 0.1
+learning_rate = 0.01
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 #create an array with the dataset
 sentences = []
 label = []
 
-with open('./NLP/NLP-1/example.txt','w') as f:
+with open(path+'example.txt','w') as f:
     current_word = []
     current_label = []
     for line in lines:
@@ -74,3 +89,55 @@ val_dataset = helper.CoNLLDataset(val_words_as_int,val_label_as_int)
 train_loader = DataLoader(train_dataset,batch_size,shuffle=True,collate_fn=helper.PadCollate)
 val_loader = DataLoader(val_dataset,batch_size,shuffle=True,collate_fn=helper.PadCollate)
 
+
+#NEED TO COMPLETE
+
+
+
+loss_object = nn.CrossEntropyLoss(ignore_index = 0)
+
+transformer = helper.TaggingTransformer(num_layers, d_model, num_heads, dff,
+                          voc_size, label_size,
+                          pe_input=voc_size,
+                          word_emb=embedding,
+                          rate=dropout_rate).to(device)
+
+optimizer = torch.optim.Adam(transformer.parameters(),lr = learning_rate)
+
+for epoch in range(EPOCHS):  # loop over the dataset multiple times
+  start = time.time()
+
+  running_loss = 0.0
+
+  transformer.train()
+
+  for (batch, (inp, tar)) in enumerate(train_loader):
+    inp = inp.to(device)
+    tar = tar.to(device)
+    enc_padding_mask = cf.create_padding_mask(inp).to(device)
+
+    # zero the parameter gradients
+    optimizer.zero_grad()
+    # forward + backward + optimize
+    predictions = transformer(inp, enc_padding_mask).transpose(1, 2)
+    loss = loss_object(predictions, tar)
+
+    loss.backward()
+    optimizer.step()
+
+    # print statistics
+    running_loss += loss.item()
+    if batch % 50 == 0 and batch != 0:
+      print('Epoch {} Batch {} Loss {:.4f}'.format(
+          epoch + 1, batch, running_loss / 50))
+      running_loss = 0.0
+
+  if (epoch + 1) % 5 == 0:
+    torch.save(transformer.state_dict(), path + 'checkpoint_{}'.format(epoch + 1))
+    print ('Saving checkpoint for epoch {} at {}'.format(epoch+1, path + 'checkpoint_{}'.format(epoch + 1)))
+
+  print ('Time taken for 1 epoch: {} secs\n'.format(time.time() - start))
+
+  cf.evaluate(val_loader, transformer, loss_object)
+
+print('Finished Training')
