@@ -27,20 +27,18 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 sentences = []
 label = []
 
-with open(path+'example.txt','w') as f:
-    current_word = []
-    current_label = []
-    for line in lines:
-        if line=='\n': 
-            f.write(line)
-            sentences.append(current_word)
-            label.append(current_label)
-            current_word = []
-            current_label = []
-        else:
-            separate = line.split('\t')
-            current_word.append(separate[0])
-            current_label.append(separate[1].split('\n')[0])
+current_word = []
+current_label = []
+for line in lines:
+    if line=='\n': 
+        sentences.append(current_word)
+        label.append(current_label)
+        current_word = []
+        current_label = []
+    else:
+        separate = line.split('\t')
+        current_word.append(separate[0])
+        current_label.append(separate[1].split('\n')[0])
 
 # split the dataset using the 80/20
 train_sentences = []
