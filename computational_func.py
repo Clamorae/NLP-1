@@ -80,9 +80,9 @@ def evaluate(eval_loader, model, loss_object):
     total = 0
 
     for (batch, (inp, tar)) in enumerate(eval_loader):
-      inp = inp.to(device)
-      tar = tar.to(device)
-      enc_padding_mask = create_padding_mask(inp).to(device)
+      inp = inp.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+      tar = tar.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+      enc_padding_mask = create_padding_mask(inp).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
 
       # predictions.shape == (batch_size, seq_len, label_size)
       predictions = model(inp, enc_padding_mask)

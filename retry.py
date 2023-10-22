@@ -18,7 +18,7 @@ num_layers = 4
 d_model = 128
 dff = 512
 num_heads = 8
-label_size = 10
+label_size = 22
 dropout_rate = 0.1
 learning_rate = 0.01
 
@@ -66,7 +66,8 @@ model = Word2Vec.load(path)
 
 #using this model create an embeding of the training dataset
 embedding = model.wv[list(model.wv.key_to_index)]
-embedding = [[0.5] * word_emb_dim] + [[0.] * word_emb_dim] + embedding
+embedding = [[0.5] * word_emb_dim] + [[0.0] * word_emb_dim] + embedding.tolist()
+#embedding = [[0.5] * word_emb_dim] + [[0.0] * word_emb_dim] + embedding
 voc = ["<PAD>","<UNK>"] + list(model.wv.key_to_index.keys())
 voc_size = len(voc)
 
@@ -86,8 +87,8 @@ val_label_as_int = [[tag2idx[tag] for tag in sentence] for sentence in val_label
 batch_size = 64
 train_dataset = helper.CoNLLDataset(train_words_as_int,train_label_as_int)
 val_dataset = helper.CoNLLDataset(val_words_as_int,val_label_as_int)
-train_loader = DataLoader(train_dataset,batch_size,shuffle=True,collate_fn=helper.PadCollate)
-val_loader = DataLoader(val_dataset,batch_size,shuffle=True,collate_fn=helper.PadCollate)
+train_loader = DataLoader(train_dataset,batch_size,shuffle=True,collate_fn=cf.PadCollate)
+val_loader = DataLoader(val_dataset,batch_size,shuffle=True,collate_fn=cf.PadCollate)
 
 
 #NEED TO COMPLETE
@@ -141,3 +142,5 @@ for epoch in range(EPOCHS):  # loop over the dataset multiple times
   cf.evaluate(val_loader, transformer, loss_object)
 
 print('Finished Training')
+
+# Try to apply this to the test value
