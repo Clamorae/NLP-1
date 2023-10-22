@@ -8,11 +8,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from gensim.models import Word2Vec
 
-path = "./NLP/NLP-1/"
-with open(path+'train.txt','r') as f:
-    lines = f.readlines()
-
 #Constant (Hyperparameters)
+path = "./NLP/NLP-1/"
 EPOCHS = 20
 num_layers = 4
 d_model = 128
@@ -27,6 +24,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 sentences = []
 label = []
 
+with open(path+'train.txt','r') as f:
+    lines = f.readlines()
 current_word = []
 current_label = []
 for line in lines:
@@ -57,10 +56,10 @@ for i in range(len(sentences)):
 
 #use word2vec to create a model and a vocabulary
 word_emb_dim = 128
-path = "./NLP/NLP-1/word2vec.model"
+model_path = "./NLP/NLP-1/word2vec.model"
 model = Word2Vec(sentences=train_sentences, vector_size=128, window=5, min_count=1, workers=4,sg=1)
-model.save(path)
-model = Word2Vec.load(path)
+model.save(model_path)
+model = Word2Vec.load(model_path)
 
 #using this model create an embeding of the training dataset
 embedding = model.wv[list(model.wv.key_to_index)]
@@ -142,3 +141,31 @@ for epoch in range(EPOCHS):  # loop over the dataset multiple times
 print('Finished Training')
 
 # Try to apply this to the test value
+with open(path+'example.txt','r') as f:
+    lines = f.readlines()
+test_sentences = []
+
+current_word = []
+for line in lines:
+    if line=='\n': 
+        test_sentences.append(current_word)
+        current_word = []
+    else:
+        separate = line.split('\t')
+        current_word.append(separate[0])
+
+test_word_as_int = [[word2idx['<UNK>'] if word not in word2idx else word2idx[word] for word in sentence] for sentence in test_sentences]
+test_dataset = helper.CoNLLDataset(test_word_as_int)
+test_loader = DataLoader(test_dataset, batch_size,shuffle = False, collate_fn = cf.PadCollate)
+
+output_id = cf.predict(test_loader, transformer)
+output_tag = [idx2tag[token] for token in output_id if token != 0]
+print(output_tag[:20])
+
+output_position = 0
+with open(path + 'test_result.txt', 'w') as f:
+    for line in test_sentences:
+        for word in line:
+            f.write('{} {}\n'.format(word, output_tag[output_position]))
+            output_position += 1
+        f.write('\n')

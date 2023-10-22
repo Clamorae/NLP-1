@@ -99,3 +99,20 @@ def evaluate(eval_loader, model, loss_object):
       running_loss += loss.item()
 
     print('Evaluate loss: {:.4f} acc: {:.4f}%\n'.format(running_loss / len(eval_loader), 100 * correct / total))
+
+def predict(test_loader, model):
+  model.eval()
+  result = []
+  for (batch, (inp)) in enumerate(test_loader):
+    enc_padding_mask = create_padding_mask(inp).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+    inp = inp.to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+
+    # predictions.shape == (batch_size, seq_len, label_size)
+    predictions = model(inp, enc_padding_mask)
+
+    _, predicted_id = torch.max(predictions, -1)
+
+    predicted_id *= inp.bool().long() #ask
+    #print(predicted_id)
+    result += predicted_id.view(-1).cpu().numpy().tolist()
+  return result
