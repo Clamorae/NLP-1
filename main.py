@@ -81,8 +81,10 @@ model.save(model_path)
 model = Word2Vec.load(model_path)
 
 #using this model create an embeding of the training dataset
-embedding = model.wv[list(model.wv.key_to_index)]
-embedding = [[0.5] * word_emb_dim] + [[0.0] * word_emb_dim] + embedding.tolist()
+
+word_embedding = model.wv[list(model.wv.key_to_index.keys())].tolist()
+word_embedding = [[0.5] * word_emb_dim] + [[0.] * word_emb_dim] + word_embedding
+print(type(word_embedding))
 voc = ["<PAD>","<UNK>"] + list(model.wv.key_to_index.keys())
 voc_size = len(voc)
 
@@ -106,7 +108,7 @@ val_dataset = ch.Dataset(val_words_as_int, val_label_as_int)
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=fh.padCollate)
 val_loader = DataLoader(val_dataset, batch_size=batch_size, collate_fn=fh.padCollate)
 
-model = ch.NLPModel(voc_size, label_size, embedding_dim=128, hidden_dim=128, num_layers=num_layers, dropout=dropout_rate).to(device)
+model = ch.NLPModel(voc_size, label_size, embedding_dim=128, hidden_dim=128, num_layers=num_layers, dropout=dropout_rate,word_emb=word_embedding, d_model=dim_model).to(device)
 
 # Define loss and optimizer
 criterion = nn.CrossEntropyLoss()
@@ -147,9 +149,9 @@ print("end of training")
 # Save the trained model
 torch.save(model.state_dict(), 'nlp_model.pth')
 
-model = ch.NLPModel(voc_size, label_size, embedding_dim=128, hidden_dim=128, num_layers=num_layers, dropout=dropout_rate).to(device)
-model.load_state_dict(torch.load('nlp_model.pth'))
-model.eval()
+NLPmodel = ch.NLPModel(voc_size, label_size, embedding_dim=128, hidden_dim=128, num_layers=num_layers, dropout=dropout_rate,d_model=dim_model,word_emb=word_embedding).to(device)
+NLPmodel.load_state_dict(torch.load('nlp_model.pth'))
+NLPmodel.eval()
 test_dataset = ch.TestDataset(test_words_as_int)
 test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=fh.padCollate)
 
@@ -160,7 +162,7 @@ with torch.no_grad():
     predicted_labels = []
     for data in test_loader:
         data = data.to(device)
-        outputs = model(data)
+        outputs = NLPmodel(data)
         predictions = torch.argmax(outputs, dim=2)  # Predicted labels
         batch_labels = []  # Store labels for a batch
         for class_id in predictions:
