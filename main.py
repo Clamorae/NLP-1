@@ -14,7 +14,7 @@ from gensim.models import Word2Vec
 
 #Constant and Hyperparameters
 path = "./NLP/NLP-1/"
-EPOCHS = 2
+EPOCHS = 20
 num_layers = 4
 dim_model = 128
 dff = 512
