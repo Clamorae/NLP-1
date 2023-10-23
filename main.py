@@ -14,7 +14,7 @@ from gensim.models import Word2Vec
 
 #Constant and Hyperparameters
 path = "./NLP/NLP-1/"
-EPOCHS = 20
+EPOCHS = 2
 num_layers = 4
 dim_model = 128
 dff = 512
@@ -125,11 +125,23 @@ for epoch in range(EPOCHS):
         optimizer.step()
 
     # Validation loop
-    model.eval()
-    with torch.no_grad():
-        for data, labels in val_loader:
-            data, labels = data.to(device), labels.to(device)
-            # Calculate validation metrics
+    if epoch%5==0:
+        model.eval()
+        acc = 0
+        f1 = 0
+        total_batch = 0
+        with torch.no_grad():
+            for data, labels in val_loader:
+                data = data.to(device)
+                labels = labels.to(device)
+                outputs = model(data)
+                predictions = torch.argmax(outputs, dim=2)
+                batch_acc, batch_f1 = fh.compute_metrics(predictions,labels)
+                acc += batch_acc
+                f1 += batch_f1
+                total_batch += 1
+        print(f"Accuracy = {acc/total_batch}")
+        print(f"F1 score = {f1/total_batch}")
 print("end of training")
 
 # Save the trained model
@@ -159,6 +171,6 @@ with torch.no_grad():
         # Calculate accuracy
         # correct_predictions += (predictions == ground_truth_labels).sum().item()
         # total_predictions += data.size(0) * data.size(1)  # Total number of tokens
-print(predicted_labels)
+fh.output(predicted_labels,path)
 # accuracy = correct_predictions / total_predictions
 # print(f'Test Accuracy: {accuracy * 100:.2f}%')
