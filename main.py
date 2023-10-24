@@ -1,178 +1,125 @@
-﻿import time
+﻿import data
+import compute
+import node
+
 import torch
 
-import random as rand
 import torch.nn as nn
-import class_helper as ch
-import func_helper as fh
-import torch.optim as optim
 
-from torch.utils.data import DataLoader
 from gensim.models import Word2Vec
+from torch.utils.data import DataLoader
 
-#TODO improve splitting
-
-#Constant and Hyperparameters
-path = "./NLP/NLP-1/"
+#=========CONSTANT=================================================
+PATH = "./NLP/NLP-1/"
+WORD_EMB_DIM = 128
+BATCH_SIZE = 64
 EPOCHS = 20
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 num_layers = 4
-dim_model = 128
+d_model = 128
 dff = 512
 num_heads = 8
 label_size = 22
-batch_size = 64
 dropout_rate = 0.1
 learning_rate = 0.01
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-#create an array with all the sentences in the dataset
-sentences = []
-label = []
+#========DATA CREATION=============================================
+sentences, labels = data.data_loader(PATH)
 
-with open(path+'train.txt','r') as f:
-    lines = f.readlines()
-current_word = []
-current_label = []
-for line in lines:
-    if line=='\n': 
-        sentences.append(current_word)
-        label.append(current_label)
-        current_word = []
-        current_label = []
-    else:
-        separate = line.split('\t')
-        current_word.append(separate[0])
-        current_label.append(separate[1].split('\n')[0])
+split = int(80*len(sentences)/100)
 
-# split the dataset using the 80/20
-train_sentences = []
-train_label = []
-val_sentences = []
-val_label = []
-for i in range(len(sentences)):
-    x = rand.randint(1,100)
-    if x>80:
-        val_sentences.append(sentences[i])
-        val_label.append(label[i])
-    else:
-        train_sentences.append(sentences[i])
-        train_label.append(label[i])
-
-# Try to apply this to the test value
-with open(path+'example.txt','r') as f:
-    lines = f.readlines()
-test_sentences = []
-
-current_word = []
-for line in lines:
-    if line=='\n': 
-        test_sentences.append(current_word)
-        current_word = []
-    else:
-        separate = line.split('\t')
-        current_word.append(separate[0])
+train_sentences = sentences[:split]
+train_label = labels[:split]
+val_sentences = sentences[split+1:]
+val_label = labels[split+1:]
+test_sentences = data.test_loader(PATH)
 
 
-#use word2vec to create a model and a vocabulary
-word_emb_dim = 128
-model_path = "./NLP/NLP-1/word2vec.model"
-model = Word2Vec(sentences=train_sentences, vector_size=128, window=5, min_count=1, workers=4,sg=1)
-model.save(model_path)
-model = Word2Vec.load(model_path)
+#========CREATE EMBEDDING==========================================
+embedding_model = Word2Vec(sentences=train_sentences, vector_size=128, window=5, min_count=1, workers=8,sg = 1)
+embedding_model.save(PATH + "word_embedding_model")
+embedding_model = Word2Vec.load(PATH + 'word_embedding_model')
 
-#using this model create an embeding of the training dataset
+word_embedding = embedding_model.wv[list(embedding_model.wv.key_to_index.keys())].tolist()
+word_embedding = [[0.5] * WORD_EMB_DIM] + [[0.] * WORD_EMB_DIM] + word_embedding
 
-word_embedding = model.wv[list(model.wv.key_to_index.keys())].tolist()
-word_embedding = [[0.5] * word_emb_dim] + [[0.] * word_emb_dim] + word_embedding
-print(type(word_embedding))
-voc = ["<PAD>","<UNK>"] + list(model.wv.key_to_index.keys())
-voc_size = len(voc)
 
-#create a dictionnary of all the words
-idx2word = voc
-word2idx = dict((j,i) for i,j in enumerate(voc))
+#========CREATE CORRESPONDING VOC=================================
+vocab = ["<PAD>","<UNK>"] + list(embedding_model.wv.key_to_index.keys())
+vocab_size = len(vocab)
+
+idx2word = vocab
+word2idx = dict((j,i) for i,j in enumerate(vocab))
+
 idx2tag = ['<PAD>', 'O', 'B-company','I-company', 'B-facility', 'I-facility','B-geo-loc', 'B-movie', 'B-musicartist', 'B-other', 'B-person', 'B-product', 'B-sportsteam', 'B-tvshow','I-geo-loc', 'I-movie', 'I-musicartist', 'I-other', 'I-person', 'I-product', 'I-sportsteam', 'I-tvshow']
 tag2idx = dict((j,i) for i,j in enumerate(idx2tag))
 
-#transform each vect in numerical value
 train_words_as_int = [[word2idx['<UNK>'] if word not in word2idx else word2idx[word] for word in sentence] for sentence in train_sentences]
-train_label_as_int = [[tag2idx[tag] for tag in sentence] for sentence in train_label]
-val_words_as_int = [[word2idx['<UNK>'] if word not in word2idx else word2idx[word] for word in sentence] for sentence in val_sentences]
-val_label_as_int = [[tag2idx[tag] for tag in sentence] for sentence in val_label]
+train_targets_as_int = [[tag2idx[tag] for tag in sentence] for sentence in train_label]
+
+eval_words_as_int = [[word2idx['<UNK>'] if word not in word2idx else word2idx[word] for word in sentence] for sentence in val_sentences]
+eval_targets_as_int = [[tag2idx[tag] for tag in sentence] for sentence in val_label]
+
 test_words_as_int = [[word2idx['<UNK>'] if word not in word2idx else word2idx[word] for word in sentence] for sentence in test_sentences]
 
-# Create datasets and dataloaders
-train_dataset = ch.Dataset(train_words_as_int, train_label_as_int)
-val_dataset = ch.Dataset(val_words_as_int, val_label_as_int)
 
-train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=fh.padCollate)
-val_loader = DataLoader(val_dataset, batch_size=batch_size, collate_fn=fh.padCollate)
+#========FORMAT DATASET AND DATALOADER=============================
+train_dataset = data.Dataset(train_words_as_int,train_targets_as_int)
+train_loader = DataLoader(train_dataset,BATCH_SIZE,shuffle = True,collate_fn = compute.PadCollate)
+eval_dataset = data.Dataset(eval_words_as_int,eval_targets_as_int)
+eval_loader = DataLoader(eval_dataset,BATCH_SIZE, shuffle = True, collate_fn = compute.PadCollate)
+test_dataset = data.Dataset(test_words_as_int)
+test_loader = DataLoader(test_dataset, BATCH_SIZE,shuffle = False, collate_fn = compute.PadCollate)
 
-model = ch.NLPModel(voc_size, label_size, embedding_dim=128, hidden_dim=128, num_layers=num_layers, dropout=dropout_rate,word_emb=word_embedding, d_model=dim_model).to(device)
 
-# Define loss and optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+#========TRAINING===================================================
+loss_object = nn.CrossEntropyLoss(ignore_index = 0)
+transformer = node.TaggingTransformer(num_layers, d_model, num_heads, dff, vocab_size, label_size, pe_input=vocab_size, word_emb=word_embedding, rate=dropout_rate).to(device)
+optimizer = torch.optim.Adam(transformer.parameters(),lr = learning_rate)
 
-# Training loop
-print("Start Training")
-for epoch in range(EPOCHS):
-    model.train()
-    for data, labels in train_loader:
-        data, labels = data.to(device), labels.to(device)
-        optimizer.zero_grad()
-        outputs = model(data)
-        loss = criterion(outputs.view(-1, label_size), labels.view(-1))
-        loss.backward()
-        optimizer.step()
+for epoch in range(EPOCHS):  # loop over the dataset multiple times
 
-    # Validation loop
-    if epoch%5==0:
-        model.eval()
-        acc = 0
-        f1 = 0
-        total_batch = 0
-        with torch.no_grad():
-            for data, labels in val_loader:
-                data = data.to(device)
-                labels = labels.to(device)
-                outputs = model(data)
-                predictions = torch.argmax(outputs, dim=2)
-                batch_acc, batch_f1 = fh.compute_metrics(predictions,labels)
-                acc += batch_acc
-                f1 += batch_f1
-                total_batch += 1
-        print(f"Accuracy = {acc/total_batch}")
-        print(f"F1 score = {f1/total_batch}")
-print("end of training")
+  running_loss = 0.0
 
-# Save the trained model
-torch.save(model.state_dict(), 'nlp_model.pth')
+  transformer.train()
 
-NLPmodel = ch.NLPModel(voc_size, label_size, embedding_dim=128, hidden_dim=128, num_layers=num_layers, dropout=dropout_rate,d_model=dim_model,word_emb=word_embedding).to(device)
-NLPmodel.load_state_dict(torch.load('nlp_model.pth'))
-NLPmodel.eval()
-test_dataset = ch.TestDataset(test_words_as_int)
-test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=fh.padCollate)
+  for (batch, (inp, tar)) in enumerate(train_loader):
+    inp = inp.to(device)
+    tar = tar.to(device)
+    enc_padding_mask = data.create_padding_mask(inp).to(device)
 
-correct_predictions = 0
-total_predictions = 0
+    # zero the parameter gradients
+    optimizer.zero_grad()
+    # forward + backward + optimize
+    predictions = transformer(inp, enc_padding_mask).transpose(1, 2)
+    loss = loss_object(predictions, tar)
 
-with torch.no_grad():
-    predicted_labels = []
-    for data in test_loader:
-        data = data.to(device)
-        outputs = NLPmodel(data)
-        predictions = torch.argmax(outputs, dim=2)  # Predicted labels
-        batch_labels = []  # Store labels for a batch
-        for class_id in predictions:
-            label = [idx2tag[c_id.item()] for c_id in class_id] # Convert class ID to label
-            batch_labels.append(label)
-        predicted_labels.append(batch_labels)
+    loss.backward()
+    optimizer.step()
 
-        # Calculate accuracy
-        # correct_predictions += (predictions == ground_truth_labels).sum().item()
-        # total_predictions += data.size(0) * data.size(1)  # Total number of tokens
-fh.output(predicted_labels,path)
-# accuracy = correct_predictions / total_predictions
-# print(f'Test Accuracy: {accuracy * 100:.2f}%')
+    # print statistics
+    running_loss += loss.item()
+    if batch % 50 == 0 and batch != 0:
+      print('Epoch {} Batch {} Loss {:.4f}'.format(
+          epoch + 1, batch, running_loss / 50))
+      running_loss = 0.0
+
+  if (epoch + 1) % 5 == 0:
+    torch.save(transformer.state_dict(), PATH + '/checkpoint_{}'.format(epoch + 1))
+    print ('Saving checkpoint for epoch {} at {}'.format(epoch+1, PATH+ '/checkpoint_{}'.format(epoch + 1)))
+
+  compute.evaluate(eval_loader, transformer, loss_object)
+
+print('Finished Training')
+
+#============PREDICTIONS===========================================
+output_id = compute.predict(test_loader, transformer)
+output_tag = [idx2tag[token] for token in output_id if token != 0]
+labels = [item for sublist in output_tag for item in sublist]
+labels = [item for sublist in labels for item in sublist]
+with open(PATH+"test-submit.txt","r") as f:
+    lines = f.readlines()
+with open(PATH+"test_result.txt","w") as f:
+    for line,label in zip(lines,labels):
+        f.write(f"{line[:-1]} = {label}\n")
