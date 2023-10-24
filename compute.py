@@ -1,108 +1,121 @@
-import data
-
-import math
+import time
 import torch
+import gc
 
-import torch.nn as nn
-import numpy as np
-import torch.nn.functional as F
+class AverageMeter(object):
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    """Computes and stores the average and current value"""
 
-def PadCollate(batch):
-    if type(batch[0]) is tuple: #train, evaluate
-      x = [t for t, _ in batch]
-      y = [t for _, t in batch]
-      x = torch.nn.utils.rnn.pad_sequence(x, batch_first=True)
-      y = torch.nn.utils.rnn.pad_sequence(y, batch_first=True)
-      return x, y
-    else: #test
-      x = torch.nn.utils.rnn.pad_sequence(batch, batch_first=True)
-      return x
+    def __init__(self):
+        self.reset()
 
-def get_angles(pos, i, d_model):
-  angle_rates = 1 / np.power(10000, (2 * (i//2)) / np.float32(d_model))
-  return pos * angle_rates
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
 
-def positional_encoding(position, d_model):
-  angle_rads = get_angles(np.arange(position)[:, np.newaxis],
-                          np.arange(d_model)[np.newaxis, :],
-                          d_model)
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
-  # apply sin to even indices in the array; 2i
-  angle_rads[:, 0::2] = np.sin(angle_rads[:, 0::2])
+def accuracy(output, target, topk=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    maxk = max(topk)
+    batch_size = target.size(0)
 
-  # apply cos to odd indices in the array; 2i+1
-  angle_rads[:, 1::2] = np.cos(angle_rads[:, 1::2])
+    _, pred = output.topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
 
-  pos_encoding = angle_rads[np.newaxis, ...]
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        res.append(correct_k.mul_(100.0 / batch_size))
+    return res
 
-#   return tf.cast(pos_encoding, dtype=tf.float32)
-  return pos_encoding
+def train(train_loader, model, criterion, optimizer, epoch,clip, print_freq):
+    batch_time = AverageMeter()
+    data_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter()
 
-def scaled_dot_product_attention(q, k, v, mask):
+    # switch to train mode
+    model.train()
 
-  matmul_qk = torch.matmul(q, k.transpose(-1,-2))  # (..., seq_len_q, seq_len_k)
+    end = time.time()
+    for i, (input, target, seq_lengths) in enumerate(train_loader):
+        # measure data loading time
+        data_time.update(time.time() - end)
 
-  # scale matmul_qk
-  dk = k.size(dim = 1)
-  scaled_attention_logits = (matmul_qk/math.sqrt(dk))
+        # compute output
+        output = model(input, seq_lengths)
+        loss = criterion(output, target)
 
-  # add the mask to the scaled tensor.
-  if mask is not None:
-    mask = -1 * np.power(10,9)
+        # measure accuracy and record loss
+        prec1 = accuracy(output.data, target, topk=(1,))
+        losses.update(loss.data, input.size(0))
+        top1.update(prec1[0][0], input.size(0))
 
-  # softmax is normalized on the last axis (seq_len_k) so that the scores
-  # add up to 1.
-  attention_weights = F.softmax(scaled_attention_logits,dim = 1)  # (..., seq_len_q, seq_len_k)
+        # compute gradient and do SGD step
+        optimizer.zero_grad()
+        loss.backward()
 
-  output = torch.matmul(attention_weights,v)# (..., seq_len_q, depth_v)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), clip)
+        optimizer.step()
 
-  return output, attention_weights
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
 
-def evaluate(eval_loader, model, loss_object):
-  model.eval()
+        if i != 0 and i % print_freq == 0:
+            print('Epoch: [{0}][{1}/{2}]  Time {batch_time.val:.3f} ({batch_time.avg:.3f})  '
+                  'Data {data_time.val:.3f} ({data_time.avg:.3f})  Loss {loss.val:.4f} ({loss.avg:.4f})  '
+                  'Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                   epoch, i, len(train_loader), batch_time=batch_time, data_time=data_time, loss=losses, top1=top1))
+            gc.collect()
 
-  with torch.no_grad():
 
-    running_loss = 0.0
-    correct = 0
-    total = 0
+def test(val_loader, model, criterion, print_freq):
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+    top1 = AverageMeter()
 
-    for (batch, (inp, tar)) in enumerate(eval_loader):
-      inp = inp.to(device)
-      tar = tar.to(device)
-      enc_padding_mask = data.create_padding_mask(inp).to(device)
+    # switch to evaluate mode
+    model.eval()
+    end = time.time()
+    for i, (input, target,seq_lengths) in enumerate(val_loader):
 
-      # predictions.shape == (batch_size, seq_len, label_size)
-      predictions = model(inp, enc_padding_mask)
+        # compute output
+        output = model(input,seq_lengths)
+        loss = criterion(output, target)
 
-      _, predictions_id = torch.max(predictions, -1)
+        # measure accuracy and record loss
+        prec1 = accuracy(output.data, target, topk=(1,))
+        losses.update(loss.data, input.size(0))
+        top1.update(prec1[0][0], input.size(0))
 
-      predictions_id *= tar.bool().long()
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
 
-      correct += (predictions_id == tar).sum().item() - (tar == 0).sum().item()
-      total += (tar != 0).sum().item()
+        if i!= 0 and i % print_freq == 0:
+            print('Test: [{0}/{1}]  Time {batch_time.val:.3f} ({batch_time.avg:.3f})  '
+                  'Loss {loss.val:.4f} ({loss.avg:.4f})  Prec@1 {top1.val:.3f} ({top1.avg:.3f})'.format(
+                   i, len(val_loader), batch_time=batch_time, loss=losses, top1=top1))
+            gc.collect()
 
-      loss = loss_object(predictions.transpose(2,1),tar)
+    print(' * Prec@1 {top1.avg:.3f}'.format(top1=top1))
+    return top1.avg
 
-      running_loss += loss.item()
+def tokenize(text):
+    # return [x.lower() for x in nltk.word_tokenize(text)]
+    return [ x.lower() for x in text.split() ]
 
-    print('Evaluate loss: {:.4f} acc: {:.4f}%\n'.format(running_loss / len(eval_loader), 100 * correct / total))
-
-def predict(test_loader, model):
-  model.eval()
-  result = []
-  for (batch, (inp)) in enumerate(test_loader):
-    enc_padding_mask = data.create_padding_mask(inp).to(device)
-    inp = inp.to(device)
-
-    # predictions.shape == (batch_size, seq_len, label_size)
-    predictions = model(inp, enc_padding_mask)
-
-    _, predicted_id = torch.max(predictions, -1)
-
-    predicted_id *= inp.bool().long() #ask
-    #print(predicted_id)
-    result += predicted_id.view(-1).cpu().numpy().tolist()
-  return result
+def adjust_learning_rate(lr, optimizer, epoch):
+    """Sets the learning rate to the initial LR decayed by 10 every 8 epochs"""
+    lr = lr * (0.1 ** (epoch // 8))
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr

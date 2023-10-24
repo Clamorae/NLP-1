@@ -1,175 +1,84 @@
-import compute
-
-import math
 import torch
-
 import torch.nn as nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-def point_wise_feed_forward_network(d_model, dff):
-  return nn.Sequential(
-      nn.Linear(d_model,dff), # (batch_size, seq_len, dff)
-      nn.ReLU(),
-      nn.Linear(dff,d_model)  # (batch_size, seq_len, d_model)
-  )
+class RNN(nn.Module):
 
-class MultiHeadAttention(nn.Module):
-  def __init__(self, d_model, num_heads):
-    super(MultiHeadAttention, self).__init__()
-    self.num_heads = num_heads
+    def __init__(self, vocab_size, embed_size, num_output, rnn_model='LSTM', use_last=True, embedding_tensor=None,
+                 padding_index=0, hidden_size=64, num_layers=1, batch_first=True):
+        """
 
-    assert d_model % num_heads == 0
+        Args:
+            vocab_size: vocab size
+            embed_size: embedding size
+            num_output: number of output (classes)
+            rnn_model:  LSTM or GRU
+            use_last:  bool
+            embedding_tensor:
+            padding_index:
+            hidden_size: hidden size of rnn module
+            num_layers:  number of layers in rnn module
+            batch_first: batch first option
+        """
 
-    self.depth = d_model // num_heads
+        super(RNN, self).__init__()
+        self.use_last = use_last
+        # embedding
+        self.encoder = None
+        if torch.is_tensor(embedding_tensor):
+            self.encoder = nn.Embedding(vocab_size, embed_size, padding_idx=padding_index, _weight=embedding_tensor)
+            self.encoder.weight.requires_grad = False
+        else:
+            self.encoder = nn.Embedding(vocab_size, embed_size, padding_idx=padding_index)
 
-    self.wq = torch.nn.Linear(d_model,d_model)
-    self.wk = torch.nn.Linear(d_model,d_model)
-    self.wv = torch.nn.Linear(d_model,d_model)
+        self.drop_en = nn.Dropout(p=0.6)
 
-    self.wo = torch.nn.Linear(d_model,d_model)
+        # rnn module
+        if rnn_model == 'LSTM':
+            self.rnn = nn.LSTM( input_size=embed_size, hidden_size=hidden_size, num_layers=num_layers, dropout=0.5,
+                                batch_first=True, bidirectional=True)
+        elif rnn_model == 'GRU':
+            self.rnn = nn.GRU( input_size=embed_size, hidden_size=hidden_size, num_layers=num_layers, dropout=0.5,
+                                batch_first=True, bidirectional=True)
+        else:
+            raise LookupError(' only support LSTM and GRU')
 
-  def split_heads(self, x, batch_size):
-    """Split the last dimension into (num_heads, depth).
-    Transpose the result such that the shape is (batch_size, num_heads, seq_len, depth)
-    """
-    x = x.view(batch_size, -1, self.num_heads, self.depth)
-    return x.transpose(1, 2)
 
-  def forward(self, q, k, v, mask):
-    batch_size = q.size(0)
-    print(mask)
+        self.bn2 = nn.BatchNorm1d(hidden_size*2)
+        self.fc = nn.Linear(hidden_size*2, num_output)
 
-    q = self.wq(q)  # (batch_size, seq_len, d_model)
-    k = self.wk(k)  # (batch_size, seq_len, d_model)
-    v = self.wv(v)  # (batch_size, seq_len, d_model)
+    def forward(self, x, seq_lengths):
+        '''
+        Args:
+            x: (batch, time_step, input_size)
 
-    q =  self.split_heads(q,batch_size) # (batch_size, num_heads, seq_len_q, depth)
-    k =  self.split_heads(k,batch_size) # (batch_size, num_heads, seq_len_k, depth)
-    v =  self.split_heads(v,batch_size) # (batch_size, num_heads, seq_len_v, depth)
+        Returns:
+            num_output size
+        '''
 
-    # scaled_attention.shape == (batch_size, num_heads, seq_len_q, depth)
-    # attention_weights.shape == (batch_size, num_heads, seq_len_q, seq_len_k)
-    scaled_attention, attention_weights = compute.scaled_dot_product_attention(q,k,v,mask)
+        x_embed = self.encoder(x)
+        x_embed = self.drop_en(x_embed)
+        packed_input = pack_padded_sequence(x_embed, seq_lengths.cpu().numpy(),batch_first=True)
 
-    scaled_attention =  scaled_attention.transpose(1,2).contiguous() # (batch_size, seq_len_q, num_heads, depth)
+        # r_out shape (batch, time_step, output_size)
+        # None is for initial hidden state
+        packed_output, ht = self.rnn(packed_input, None)
+        out_rnn, _ = pad_packed_sequence(packed_output, batch_first=True)
 
-    concat_attention = scaled_attention.view(batch_size, -1, self.num_heads * self.depth)  # (batch_size, seq_len_q, d_model)
+        row_indices = torch.arange(0, x.size(0)).long()
+        col_indices = seq_lengths - 1
+        if next(self.parameters()).is_cuda:
+            row_indices = row_indices.cuda()
+            col_indices = col_indices.cuda()
 
-    output =  self.wo(concat_attention) # (batch_size, seq_len_q, d_model)
+        if self.use_last:
+            last_tensor=out_rnn[row_indices, col_indices, :]
+        else:
+            # use mean
+            last_tensor = out_rnn[row_indices, :, :]
+            last_tensor = torch.mean(last_tensor, dim=1)
 
-    return output, attention_weights
-
-class LayerNorm(nn.Module): #不用修改
-    "Construct a layernorm module (See citation for details)."
-    def __init__(self, features, eps=1e-6):
-        super(LayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(features))
-        self.b_2 = nn.Parameter(torch.zeros(features))
-        self.eps = eps
-
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
-    
-class EncoderLayer(nn.Module):
-  def __init__(self, d_model, num_heads, dff, rate=0.1):
-    super(EncoderLayer, self).__init__()
-
-    self.mha = MultiHeadAttention(d_model, num_heads).to(device)
-    self.ffn = point_wise_feed_forward_network(d_model, dff)
-
-    self.layernorm1 = LayerNorm(d_model)
-    self.layernorm2 = LayerNorm(d_model)
-
-    self.dropout1 = nn.Dropout(rate)
-    self.dropout2 = nn.Dropout(rate)
-
-  def forward(self, x, mask):
-    x = x.float()
-    attn_output, _ = self.mha(x,x,x,mask)  # (batch_size, input_seq_len, d_model)
-    attn_output = self.dropout1(attn_output)
-    out1 = self.layernorm1(x + attn_output) # (batch_size, input_seq_len, d_model)
-
-    ffn_output = self.ffn(out1)  # (batch_size, input_seq_len, d_model)
-    ffn_output = self.dropout2(ffn_output)
-    out2 = self.layernorm2(out1 + ffn_output)  # (batch_size, input_seq_len, d_model)
-
-    return out2
-
-class EncoderLayer(nn.Module):
-  def __init__(self, d_model, num_heads, dff, rate=0.1):
-    super(EncoderLayer, self).__init__()
-
-    self.mha = MultiHeadAttention(d_model, num_heads).to(device)
-    self.ffn = point_wise_feed_forward_network(d_model, dff)
-
-    self.layernorm1 = LayerNorm(d_model)
-    self.layernorm2 = LayerNorm(d_model)
-
-    self.dropout1 = nn.Dropout(rate)
-    self.dropout2 = nn.Dropout(rate)
-
-  def forward(self, x, mask):
-    x = x.float()
-    attn_output, _ = self.mha(x,x,x,mask)  # (batch_size, input_seq_len, d_model)
-    attn_output = self.dropout1(attn_output)
-    out1 = self.layernorm1(x + attn_output) # (batch_size, input_seq_len, d_model)
-
-    ffn_output = self.ffn(out1)  # (batch_size, input_seq_len, d_model)
-    ffn_output = self.dropout2(ffn_output)
-    out2 = self.layernorm2(out1 + ffn_output)  # (batch_size, input_seq_len, d_model)
-
-    return out2
-
-class Encoder(nn.Module):
-  def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
-               maximum_position_encoding, word_emb, rate=0.1):
-    super(Encoder, self).__init__()
-
-    self.d_model = d_model
-    self.num_layers = num_layers
-
-    self.word_emb = nn.Embedding.from_pretrained(torch.FloatTensor(word_emb))
-    self.embedding = nn.Embedding.from_pretrained
-    self.pos_encoding = compute.positional_encoding(maximum_position_encoding ,d_model)
-
-    self.enc_layers = nn.ModuleList([EncoderLayer(d_model,num_heads,dff,rate) for j in range(self.num_layers)])
-
-    self.dropout = nn.Dropout(rate)
-
-  def forward(self, x, mask):
-
-    seq_len = x.size(1)
-
-    # adding embedding and position encoding.
-    x = self.word_emb(x)  # (batch_size, input_seq_len, d_model)
-
-    x *= math.sqrt(self.d_model)
-    x = (x.cpu() + self.pos_encoding[:, :seq_len, :]).to(device)
-
-    x = self.dropout(x)
-
-    for i in range(self.num_layers):
-      x = self.enc_layers[i](x,mask)
-
-    return x  # (batch_size, input_seq_len, d_model)
-
-class TaggingTransformer(nn.Module):
-  def __init__(self, num_layers, d_model, num_heads, dff, input_vocab_size,
-               label_size, pe_input, word_emb):
-    super(TaggingTransformer, self).__init__()
-
-    self.encoder = Encoder(num_layers, d_model, num_heads,dff, input_vocab_size,
-                         pe_input, word_emb=word_emb).to(device)
-
-    self.final_layer = nn.Linear(d_model,label_size)
-
-  def forward(self, inp, enc_padding_mask):
-
-    enc_output = self.encoder(inp,enc_padding_mask)  # (batch_size, inp_seq_len, d_model)
-
-    final_output = self.final_layer(enc_output)  # (batch_size, tar_seq_len, label_size)
-
-    return final_output
+        fc_input = self.bn2(last_tensor)
+        out = self.fc(fc_input)
+        return out
