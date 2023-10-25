@@ -5,24 +5,37 @@ import numpy as np
 import pandas as pd
 
 def data_loader(path):
-    sentences = []
-    label = []
+    dataset = []
 
     with open(path+'train.txt','r') as f:
         lines = f.readlines()
-    current_word = []
-    current_label = []
-    for line in lines:
-        if line=='\n': 
-            sentences.append(current_word)
-            label.append(current_label)
-            current_word = []
-            current_label = []
-        else:
+
+    for i,line in enumerate(lines):
+        if line!='\n': 
             separate = line.split('\t')
-            current_word.append(separate[0])
-            current_label.append(separate[1].split('\n')[0])
-    return sentences, label
+            separate[1]=separate[1].split('\n')[0]
+            dataset.append(separate)
+    return dataset
+
+class Loader():
+    def __init__(self,data) -> None:
+        self.item = []
+        self.target = []
+        for item in data:
+            self.item.append(item[0])
+            self.target.append(item[1])
+    
+    def getItem(self):
+        return self.item
+    
+    def getLabel(self):
+        return self.target
+    
+    def setItem(self,item):
+        self.item=item
+    
+    def setLabel(self, label):
+        self.target = label
 
 def test_loader(path):
     with open(path+'example.txt','r') as f:

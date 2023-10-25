@@ -7,74 +7,117 @@ import compute
 
 import torch.nn as nn
 
+from sklearn.model_selection import train_test_split
 from gensim.models import Word2Vec
+from torch.autograd import Variable
 
-#CONSTANT==================================================================
+# --------------------------------- CONSTANT --------------------------------- #
 PATH = "./NLP/NLP-1/"
 WORD_EMB_DIM = 128
 EPOCHS = 20
-BATCH_SIZE = 128
 
-classes = 22
-hidden_size = 128
 learning_rate = 0.01
-print_freq = 5
-save_freq = print_freq
-layers = 128
 emb_size = 128
-weight_decay = 0.0001
-clip = 0.25
+layer_dim = 4
+hidden_dim = 4
 
-#========DATA CREATION=============================================
-sentences, labels = data.data_loader(PATH)
+# ------------------------------- DATA CREATION ------------------------------ #
+dataset = data.data_loader(PATH)
+splitted = train_test_split(dataset)
+train_set = splitted[0]
+test_set = splitted[1]
 
-split = int(80*len(sentences)/100)
+train_loader = data.Loader(train_set)
+test_loader = data.Loader(test_set)
 
-train_sentences = sentences[:split]
-train_label = labels[:split]
-val_sentences = sentences[split+1:]
-val_label = labels[split+1:]
-test_sentences = data.test_loader(PATH)
+train_embedding_model = Word2Vec(sentences=train_loader.getItem(), vector_size=128, window=5, min_count=1, workers=8, sg = 1)
+train_embedding = train_embedding_model.wv[list(train_embedding_model.wv.key_to_index.keys())].tolist()
+train_embedding = [[0.5] * WORD_EMB_DIM] + [[0.] * WORD_EMB_DIM] + train_embedding
 
+# for i in range(len(train_embedding)):
+#     train_embedding[i] = torch.tensor(train_embedding[i])
 
-#========CREATE EMBEDDING==========================================
-embedding_model = Word2Vec(sentences=train_sentences, vector_size=emb_size, window=5, min_count=1, workers=8,sg = 1)
-embedding_model.save(PATH + "word_embedding_model")
-embedding_model = Word2Vec.load(PATH + 'word_embedding_model')
+test_embedding_model = Word2Vec(sentences=test_loader.getItem(), vector_size=128, window=5, min_count=1, workers=8, sg = 1)
+test_embedding = test_embedding_model.wv[list(test_embedding_model.wv.key_to_index.keys())].tolist()
+test_embedding = [[0.5] * WORD_EMB_DIM] + [[0.] * WORD_EMB_DIM] + test_embedding
 
-word_embedding = embedding_model.wv[list(embedding_model.wv.key_to_index.keys())].tolist()
-word_embedding = [[0.5] * WORD_EMB_DIM] + [[0.] * WORD_EMB_DIM] + word_embedding
-
-
-#========CREATE CORRESPONDING VOC=================================
-vocab = ["<PAD>","<UNK>"] + list(embedding_model.wv.key_to_index.keys())
-word2idx = dict((j,i) for i,j in enumerate(vocab))
-train_loader = data.TextClassDataLoader(train_sentences, train_label,word2idx ,BATCH_SIZE)
-val_loader = data.TextClassDataLoader(val_sentences, val_label,word2idx ,BATCH_SIZE)
+vocab = ["<PAD>","<UNK>"] + list(set(train_loader.getLabel() + test_loader.getLabel()))
 vocab_size = len(vocab)
 
-#CREATE MODEL=====================================================
-print("===> creating rnn model ...")
-model = node.RNN(vocab_size=vocab_size, embed_size=emb_size, num_output=classes, rnn_model='LSTM',
-            use_last=( True),
-            hidden_size=hidden_size, embedding_tensor=word_embedding, num_layers=layers, batch_first=True)
-print(model)
+train_data = [train_embedding,train_loader.getLabel()]
+test_data = [torch.tensor(test_embedding),test_loader.getLabel()]
 
-# optimizer and loss
-optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=weight_decay)
+# ------------------------------- RNN CREATION ------------------------------- #
 
+class RNN(nn.Module):
+    def __init__(self,hidden_dim,layer_dim,input_dim,output_dim):
+        super(RNN,self).__init__()
+        # Number of hidden dimensions
+        self.hidden_dim = hidden_dim
+        
+        # Number of hidden layers
+        self.layer_dim = layer_dim
+        
+        # RNN
+        self.rnn = nn.RNN(input_dim, hidden_dim, layer_dim, batch_first=True, nonlinearity='relu')
+        
+        # Readout layer
+        self.fc = nn.Linear(hidden_dim, output_dim)
+    
+    def forward(self,x):
+        # Initialize hidden state with zeros
+        h0 = Variable(torch.zeros(self.layer_dim, x.size(0), self.hidden_dim))
+        x,hn = self.rnn(x,h0)
+        x = self.fc(x[:, -1, :])
+        return x
+
+rnn = RNN(hidden_dim,layer_dim,emb_size,vocab_size)        
 criterion = nn.CrossEntropyLoss()
-print(optimizer)
-print(criterion)
+optimizer = torch.optim.SGD(rnn.parameters(), lr=learning_rate)
 
-# training and testing
-for epoch in range(1, EPOCHS+1):
+# --------------------------------- TRAINING --------------------------------- #
 
-    compute.adjust_learning_rate(learning_rate, optimizer, epoch)
-    compute.train(train_loader, model, criterion, optimizer, epoch, clip, print_freq)
-    compute.test(val_loader, model, criterion,print_freq)
+for epoch in range(EPOCHS):
+    for i in range(len(train_data[0])-1):
+        optimizer.zero_grad()   
 
-    # save current model
-    if epoch % save_freq == 0:
-        name_model = 'rnn_{}.pkl'.format(epoch)
-        path_save_model = os.path.join('gen', name_model)
+        if i == 0:
+            prev = torch.tensor([0.5] * WORD_EMB_DIM)
+            next = train_data[0][i+1]
+            print("aled")
+        elif i == len(train_data[0])-1:
+            prev = train_data[0][i-1]
+            next = torch.tensor([0.5] * WORD_EMB_DIM)
+        else:
+            prev = train_data[0][i-1]
+            next = train_data[0][i+1]
+
+        outputs = rnn(torch.tensor(train_data[0][i]))
+        print(outputs)
+
+
+
+
+
+# print("===> creating rnn model ...")
+# model = node.RNN(vocab_size=vocab_size, embed_size=emb_size, num_output=classes, rnn_model='LSTM',
+#             use_last=( True),
+#             hidden_size=hidden_size, embedding_tensor=word_embedding, num_layers=layers, batch_first=True)
+# print(model)
+
+# # optimizer and loss
+# optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=weight_decay)
+
+# criterion = nn.CrossEntropyLoss()
+
+# # training and testing
+# for epoch in range(1, EPOCHS+1):
+
+#     compute.adjust_learning_rate(learning_rate, optimizer, epoch)
+#     compute.train(train_loader, model, criterion, optimizer, epoch, clip, print_freq)
+#     compute.test(val_loader, model, criterion,print_freq)
+
+#     # save current model
+#     if epoch % save_freq == 0:
+#         name_model = 'rnn_{}.pkl'.format(epoch)
+#         path_save_model = os.path.join('gen', name_model)

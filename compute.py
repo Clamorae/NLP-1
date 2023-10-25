@@ -52,6 +52,7 @@ def train(train_loader, model, criterion, optimizer, epoch,clip, print_freq):
 
         # compute output
         output = model(input, seq_lengths)
+        print(output)
         loss = criterion(output, target)
 
         # measure accuracy and record loss
