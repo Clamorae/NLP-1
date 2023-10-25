@@ -34,18 +34,15 @@ train_embedding_model = Word2Vec(sentences=train_loader.getItem(), vector_size=1
 train_embedding = train_embedding_model.wv[list(train_embedding_model.wv.key_to_index.keys())].tolist()
 train_embedding = [[0.5] * WORD_EMB_DIM] + [[0.] * WORD_EMB_DIM] + train_embedding
 
-# for i in range(len(train_embedding)):
-#     train_embedding[i] = torch.tensor(train_embedding[i])
-
 test_embedding_model = Word2Vec(sentences=test_loader.getItem(), vector_size=128, window=5, min_count=1, workers=8, sg = 1)
 test_embedding = test_embedding_model.wv[list(test_embedding_model.wv.key_to_index.keys())].tolist()
 test_embedding = [[0.5] * WORD_EMB_DIM] + [[0.] * WORD_EMB_DIM] + test_embedding
 
-vocab = ["<PAD>","<UNK>"] + list(set(train_loader.getLabel() + test_loader.getLabel()))
+vocab = ["<PAD>","<UNK>"] + list(set(i for j in train_loader.getLabel() for i in j))
 vocab_size = len(vocab)
 
 train_data = [train_embedding,train_loader.getLabel()]
-test_data = [torch.tensor(test_embedding),test_loader.getLabel()]
+test_data = [test_embedding,test_loader.getLabel()]
 
 # ------------------------------- RNN CREATION ------------------------------- #
 
@@ -66,9 +63,9 @@ class RNN(nn.Module):
     
     def forward(self,x):
         # Initialize hidden state with zeros
-        h0 = Variable(torch.zeros(self.layer_dim, x.size(0), self.hidden_dim))
+        h0 = Variable(torch.zeros(self.layer_dim, self.hidden_dim))
         x,hn = self.rnn(x,h0)
-        x = self.fc(x[:, -1, :])
+        x = self.fc(x)
         return x
 
 rnn = RNN(hidden_dim,layer_dim,emb_size,vocab_size)        
@@ -78,21 +75,9 @@ optimizer = torch.optim.SGD(rnn.parameters(), lr=learning_rate)
 # --------------------------------- TRAINING --------------------------------- #
 
 for epoch in range(EPOCHS):
-    for i in range(len(train_data[0])-1):
+    for i in range(len(train_data)):
         optimizer.zero_grad()   
-
-        if i == 0:
-            prev = torch.tensor([0.5] * WORD_EMB_DIM)
-            next = train_data[0][i+1]
-            print("aled")
-        elif i == len(train_data[0])-1:
-            prev = train_data[0][i-1]
-            next = torch.tensor([0.5] * WORD_EMB_DIM)
-        else:
-            prev = train_data[0][i-1]
-            next = train_data[0][i+1]
-
-        outputs = rnn(torch.tensor(train_data[0][i]))
+        outputs = rnn(torch.tensor(train_data[0][i])[None, ...])
         print(outputs)
 
 
