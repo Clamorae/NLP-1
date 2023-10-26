@@ -1,9 +1,5 @@
-﻿
-import os
-import node
-import data
+﻿import data
 import torch
-import compute
 
 import torch.nn as nn
 
@@ -38,8 +34,12 @@ test_embedding_model = Word2Vec(sentences=test_loader.getItem(), vector_size=128
 test_embedding = test_embedding_model.wv[list(test_embedding_model.wv.key_to_index.keys())].tolist()
 test_embedding = [[0.5] * WORD_EMB_DIM] + [[0.] * WORD_EMB_DIM] + test_embedding
 
-vocab = ["<PAD>","<UNK>"] + list(set(i for j in train_loader.getLabel() for i in j))
+vocab = ["<PAD>","<UNK>"] + list(set(train_loader.getLabel()))
 vocab_size = len(vocab)
+vocab_tensor = []
+for i in range(vocab_size):
+    vocab_tensor.append(torch.tensor([0.0]*i + [1.0] + [0.0]*(vocab_size-i-1)))
+
 
 train_data = [train_embedding,train_loader.getLabel()]
 test_data = [test_embedding,test_loader.getLabel()]
@@ -60,6 +60,7 @@ class RNN(nn.Module):
         
         # Readout layer
         self.fc = nn.Linear(hidden_dim, output_dim)
+
     
     def forward(self,x):
         # Initialize hidden state with zeros
@@ -75,10 +76,14 @@ optimizer = torch.optim.SGD(rnn.parameters(), lr=learning_rate)
 # --------------------------------- TRAINING --------------------------------- #
 
 for epoch in range(EPOCHS):
-    for i in range(len(train_data)):
+    for i in range(len(train_data[0])):
         optimizer.zero_grad()   
         outputs = rnn(torch.tensor(train_data[0][i])[None, ...])
-        print(outputs)
+        lab = (vocab_tensor[vocab.index(train_data[1][i])])
+        loss = criterion(outputs,lab.view(-1,23))
+        loss.backward()
+        optimizer.step()
+        print(vocab[torch.argmax(outputs)])
 
 
 
