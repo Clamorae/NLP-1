@@ -76,6 +76,8 @@ optimizer = torch.optim.SGD(rnn.parameters(), lr=learning_rate)
 # --------------------------------- TRAINING --------------------------------- #
 
 for epoch in range(EPOCHS):
+    true = 0
+    o = 0
     for i in range(len(train_data[0])):
         optimizer.zero_grad()   
         outputs = rnn(torch.tensor(train_data[0][i])[None, ...])
@@ -83,31 +85,11 @@ for epoch in range(EPOCHS):
         loss = criterion(outputs,lab.view(-1,23))
         loss.backward()
         optimizer.step()
-        print(vocab[torch.argmax(outputs)])
+        if vocab[torch.argmax(outputs)] == train_data[1][i]:
+            true+=1
+        if train_data[1][i] == "O":
+            o+=1
+        
+    print(f"{true}/{i}, O = {o}")
+    print(f"EPOCH : {epoch}, accuracy = {true/i*100}%")
 
-
-
-
-
-# print("===> creating rnn model ...")
-# model = node.RNN(vocab_size=vocab_size, embed_size=emb_size, num_output=classes, rnn_model='LSTM',
-#             use_last=( True),
-#             hidden_size=hidden_size, embedding_tensor=word_embedding, num_layers=layers, batch_first=True)
-# print(model)
-
-# # optimizer and loss
-# optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=learning_rate, weight_decay=weight_decay)
-
-# criterion = nn.CrossEntropyLoss()
-
-# # training and testing
-# for epoch in range(1, EPOCHS+1):
-
-#     compute.adjust_learning_rate(learning_rate, optimizer, epoch)
-#     compute.train(train_loader, model, criterion, optimizer, epoch, clip, print_freq)
-#     compute.test(val_loader, model, criterion,print_freq)
-
-#     # save current model
-#     if epoch % save_freq == 0:
-#         name_model = 'rnn_{}.pkl'.format(epoch)
-#         path_save_model = os.path.join('gen', name_model)
