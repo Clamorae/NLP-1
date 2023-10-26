@@ -1,5 +1,5 @@
-﻿import data
-import torch
+﻿import torch
+import string
 
 import torch.nn as nn
 
@@ -18,21 +18,37 @@ layer_dim = 4
 hidden_dim = 4
 
 # ------------------------------- DATA CREATION ------------------------------ #
-dataset = data.data_loader(PATH)
-splitted = train_test_split(dataset)
-train_set = splitted[0]
-test_set = splitted[1]
+class Loader():
+    def __init__(self, path) -> None:
+        self.item = []
+        self.target = []
 
-train_loader = data.Loader(train_set)
-test_loader = data.Loader(test_set)
+        with open(path,'r') as f:
+            lines = f.readlines()
+        for line in lines:
+            if line!='\n': 
+                separate = line.split('\t')
+                if separate[0] not in string.punctuation:
+                    self.item.append(separate[0])
+                    self.target.append(separate[1].split('\n')[0])
+    
+    def getItem(self):
+        return self.item
+    
+    def getLabel(self):
+        return self.target
+    
+    def setItem(self,item):
+        self.item=item
+    
+    def setLabel(self, label):
+        self.target = label
+
+train_loader = Loader(PATH+"train.txt")
 
 train_embedding_model = Word2Vec(sentences=train_loader.getItem(), vector_size=128, window=5, min_count=1, workers=8, sg = 1)
 train_embedding = train_embedding_model.wv[list(train_embedding_model.wv.key_to_index.keys())].tolist()
 train_embedding = [[0.5] * WORD_EMB_DIM] + [[0.] * WORD_EMB_DIM] + train_embedding
-
-test_embedding_model = Word2Vec(sentences=test_loader.getItem(), vector_size=128, window=5, min_count=1, workers=8, sg = 1)
-test_embedding = test_embedding_model.wv[list(test_embedding_model.wv.key_to_index.keys())].tolist()
-test_embedding = [[0.5] * WORD_EMB_DIM] + [[0.] * WORD_EMB_DIM] + test_embedding
 
 vocab = ["<PAD>","<UNK>"] + list(set(train_loader.getLabel()))
 vocab_size = len(vocab)
@@ -42,7 +58,6 @@ for i in range(vocab_size):
 
 
 train_data = [train_embedding,train_loader.getLabel()]
-test_data = [test_embedding,test_loader.getLabel()]
 
 # ------------------------------- RNN CREATION ------------------------------- #
 
