@@ -10,15 +10,15 @@ from sklearn.metrics import f1_score
 
 # --------------------------------- CONSTANT --------------------------------- #
 PATH = "./NLP/NLP-1/"
-BATCH_SIZE = 64
+BATCH_SIZE = 16
 
-word_emb_dim = 46
+word_emb_dim = 45
 epochs = 20
 learning_rate = 0.01
-windows = 5
-layer_dim = 4
-hidden_dim = 4
-dropout = 0.1
+windows = 7
+layer_dim = 128
+hidden_dim = 128
+dropout = 0.3
 
 # ------------------------------- DATA LOADING ------------------------------ #
 class Loader():
@@ -33,12 +33,14 @@ class Loader():
         for line in lines:
             if line!='\n': 
                 separate = line.split('\t')
-                if separate[0] not in string.punctuation:
+                if separate[0] not in string.punctuation and separate[0][0]!="@":
                     sentence.append(separate[0])
                     label.append(separate[1].split('\n')[0])
+
             else:
-                self.item.append(sentence)
-                self.target.append(label)
+                if all(i == label[0] for i in label) == False:
+                    self.item.append(sentence)
+                    self.target.append(label)
                 sentence = []
                 label = []
         
@@ -179,8 +181,8 @@ for epoch in range(epochs):
     print(f"Epoch [{epoch + 1}/{epochs}], Loss: {average_loss:.4f}, Accuracy: {accuracy:.2f}%")
     f1_scores = f1_score(all_actual, all_predicted, average=None)
 
-    for i in range(nb_class):
-        print(f"F1 Score (Class {index2target[i]}): {f1_scores[i]*100:.2f}%")
+    # for i in range(nb_class):
+    #     print(f"F1 Score (Class {index2target[i]}): {f1_scores[i]*100:.2f}%")
 
     average_f1 = sum(f1_scores) / len(f1_scores)
     print(f"Average F1 Score: {average_f1*100:.2f}%")
