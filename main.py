@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 from torch.utils.data import DataLoader, TensorDataset
 from gensim.models import Word2Vec
-from torch.autograd import Variable
+from torchmetrics.classification import MulticlassF1Score
 
 # --------------------------------- CONSTANT --------------------------------- #
 PATH = "./NLP/NLP-1/"
@@ -129,14 +129,16 @@ class RNN(nn.Module):
         self.gru = nn.GRU(input_size=input_dim,hidden_size=hidden_dim,dropout=dropout_rate)
         # Readout layer
         self.fc = nn.Linear(hidden_dim, output_dim)
+        self.dropout = nn.Dropout(p=dropout_rate)
 
     
     def forward(self,x):
         x,_ = self.gru(x)
+        x = self.dropout(x)
         x = self.fc(x)
         return x
 
-rnn = RNN(hidden_dim,layer_dim,max_size,vocab_size,dropout)        
+rnn = RNN(hidden_dim,layer_dim,max_size,nb_class,dropout)        
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.SGD(rnn.parameters(), lr=learning_rate)
 
@@ -151,10 +153,17 @@ for epoch in range(epochs):
 
         optimizer.zero_grad()   
         outputs = rnn(sentence)
-        loss = criterion(outputs.view(-1, vocab_size),label.view(-1))
+        loss = criterion(outputs.view(-1, 22),label.view(-1))
         loss.backward()
         optimizer.step()
-        
-        sum_loss+=loss.item()
-        
 
+        sum_loss += loss.item()
+        _, predicted = outputs.max(2)
+        correct += (predicted.view(-1) == label.view(-1)).sum().item()
+        total += label.view(-1).size(0)
+
+
+    average_loss = sum_loss / len(train_load) #modify
+    sum_loss += loss.item()  # Accumulate the loss for this batch
+    accuracy = (correct/ total) * 100.0
+    print(f"Epoch [{epoch + 1}/{epochs}], Loss: {average_loss:.4f}, Accuracy: {accuracy:.2f}%")
