@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 from torch.utils.data import DataLoader, TensorDataset
 from gensim.models import Word2Vec
-from torchmetrics.classification import MulticlassF1Score
+from sklearn.metrics import f1_score
 
 # --------------------------------- CONSTANT --------------------------------- #
 PATH = "./NLP/NLP-1/"
@@ -149,6 +149,13 @@ for epoch in range(epochs):
     correct = 0
     total = 0
 
+    class_wise_true_positives = [0] * nb_class
+    class_wise_false_positives = [0] * nb_class
+    class_wise_false_negatives = [0] * nb_class
+
+    all_predicted = []
+    all_actual = []
+
     for sentence, label in train_load:
 
         optimizer.zero_grad()   
@@ -162,8 +169,19 @@ for epoch in range(epochs):
         correct += (predicted.view(-1) == label.view(-1)).sum().item()
         total += label.view(-1).size(0)
 
+        all_predicted.extend(predicted.view(-1).cpu().numpy())
+        all_actual.extend(label.view(-1).cpu().numpy())
+
 
     average_loss = sum_loss / len(train_load) #modify
     sum_loss += loss.item()  # Accumulate the loss for this batch
     accuracy = (correct/ total) * 100.0
     print(f"Epoch [{epoch + 1}/{epochs}], Loss: {average_loss:.4f}, Accuracy: {accuracy:.2f}%")
+    f1_scores = f1_score(all_actual, all_predicted, average=None)
+
+    for i in range(nb_class):
+        print(f"F1 Score (Class {index2target[i]}): {f1_scores[i]*100:.2f}%")
+
+    average_f1 = sum(f1_scores) / len(f1_scores)
+    print(f"Average F1 Score: {average_f1*100:.2f}%")
+    print("|------------------------------------------------------------|")
