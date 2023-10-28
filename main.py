@@ -12,7 +12,7 @@ from torch.autograd import Variable
 PATH = "./NLP/NLP-1/"
 BATCH_SIZE = 64
 
-word_emb_dim = 128
+word_emb_dim = 46
 epochs = 20
 learning_rate = 0.01
 windows = 5
@@ -103,16 +103,17 @@ def addPadding(data, max_size, windows):
     return padded_data
 
 train_loader.setItem(addPadding(train_loader.getItem(),max_size,windows))
-val_loader.setItem(addPadding(val_loader.getItem(),max_size,windows))
+train_loader.setLabel(addPadding(train_loader.getLabel(),max_size,windows))
+max_size = max(len(seq) for seq in train_loader.getItem())
 
 # -------------------------------- DATALOADER -------------------------------- #
 
-train_int = [[target2index[target] for target in words] for words in train_loader.getItem()]
+train_int = [[target2index[target] for target in words] for words in train_loader.getLabel()]
 train_words_embedded = encoder(train_loader.getItem(), word2index, word_embedding)
 train_inputs = torch.Tensor(train_words_embedded).float()
 train_targets = torch.Tensor(train_int).long()
 train_dataset = TensorDataset(train_inputs, train_targets)
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+train_load = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
 # ------------------------------- RNN CREATION ------------------------------- #
 
@@ -122,23 +123,20 @@ class RNN(nn.Module):
 
         self.hidden_dim = hidden_dim
         self.layer_dim = layer_dim
+        self.input_dim = input_dim
         
         # RNN
-        self.rnn = nn.RNN(input_dim, hidden_dim, layer_dim, batch_first=True, nonlinearity='relu',dropout=dropout_rate)
-        
+        self.gru = nn.GRU(input_size=input_dim,hidden_size=hidden_dim,dropout=dropout_rate)
         # Readout layer
         self.fc = nn.Linear(hidden_dim, output_dim)
 
     
     def forward(self,x):
-        # Initialize hidden state with zeros
-        h0 = Variable(torch.zeros(self.layer_dim, self.hidden_dim))
-        x,hn = self.rnn(x,h0)
+        x,_ = self.gru(x)
         x = self.fc(x)
-        x = F.softmax(x, dim=1)
         return x
 
-rnn = RNN(hidden_dim,layer_dim,word_emb_dim,vocab_size,dropout)        
+rnn = RNN(hidden_dim,layer_dim,max_size,vocab_size,dropout)        
 criterion = nn.CrossEntropyLoss()
 optimizer = torch.optim.SGD(rnn.parameters(), lr=learning_rate)
 
@@ -149,11 +147,11 @@ for epoch in range(epochs):
     correct = 0
     total = 0
 
-    for sentence, label in train_loader:
+    for sentence, label in train_load:
 
         optimizer.zero_grad()   
         outputs = rnn(sentence)
-        loss = criterion(outputs,label)
+        loss = criterion(outputs.view(-1, vocab_size),label.view(-1))
         loss.backward()
         optimizer.step()
         
