@@ -106,6 +106,8 @@ def addPadding(data, max_size, windows):
 
 train_loader.setItem(addPadding(train_loader.getItem(),max_size,windows))
 train_loader.setLabel(addPadding(train_loader.getLabel(),max_size,windows))
+val_loader.setItem(addPadding(val_loader.getItem(),max_size,windows))
+val_loader.setLabel(addPadding(val_loader.getLabel(),max_size,windows))
 max_size = max(len(seq) for seq in train_loader.getItem())
 
 # -------------------------------- DATALOADER -------------------------------- #
@@ -117,6 +119,12 @@ train_targets = torch.Tensor(train_int).long()
 train_dataset = TensorDataset(train_inputs, train_targets)
 train_load = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 
+val_int = [[target2index[target] for target in words] for words in val_loader.getLabel()]
+val_word_embedded = encoder(val_loader.getItem(),word2index,word_embedding)
+val_input = torch.Tensor(val_word_embedded).float()
+val_targets = torch.Tensor(val_int).long()
+val_dataset = TensorDataset(val_input,val_targets)
+val_load = DataLoader(val_dataset,batch_size=BATCH_SIZE, shuffle=True)
 # ------------------------------- RNN CREATION ------------------------------- #
 
 class RNN(nn.Module):
@@ -146,25 +154,22 @@ optimizer = torch.optim.SGD(rnn.parameters(), lr=learning_rate)
 
 # --------------------------------- TRAINING --------------------------------- #
 
-for epoch in range(epochs):
+def iterate(loader, isEval = False):
     sum_loss = 0
     correct = 0
     total = 0
 
-    class_wise_true_positives = [0] * nb_class
-    class_wise_false_positives = [0] * nb_class
-    class_wise_false_negatives = [0] * nb_class
-
     all_predicted = []
     all_actual = []
 
-    for sentence, label in train_load:
+    for sentence, label in loader:
 
         optimizer.zero_grad()   
         outputs = rnn(sentence)
         loss = criterion(outputs.view(-1, 22),label.view(-1))
-        loss.backward()
-        optimizer.step()
+        if isEval == False:    
+            loss.backward()
+            optimizer.step()
 
         sum_loss += loss.item()
         _, predicted = outputs.max(2)
@@ -175,15 +180,25 @@ for epoch in range(epochs):
         all_actual.extend(label.view(-1).cpu().numpy())
 
 
-    average_loss = sum_loss / len(train_load) #modify
-    sum_loss += loss.item()  # Accumulate the loss for this batch
+    average_loss = sum_loss / len(loader)
+    sum_loss += loss.item()
     accuracy = (correct/ total) * 100.0
-    print(f"Epoch [{epoch + 1}/{epochs}], Loss: {average_loss:.4f}, Accuracy: {accuracy:.2f}%")
+    print(f"|-------------Epoch [{epoch + 1}/{epochs}]--------------|\n Loss: {average_loss:.4f},\n Accuracy: {accuracy:.2f}%")
     f1_scores = f1_score(all_actual, all_predicted, average=None)
 
     # for i in range(nb_class):
     #     print(f"F1 Score (Class {index2target[i]}): {f1_scores[i]*100:.2f}%")
 
     average_f1 = sum(f1_scores) / len(f1_scores)
-    print(f"Average F1 Score: {average_f1*100:.2f}%")
-    print("|------------------------------------------------------------|")
+    print(f" Average F1 Score: {average_f1*100:.2f}%")
+    print("|----------------------------------------|\n\n")
+
+for epoch in range(epochs):
+    iterate(train_load)
+
+# --------------------------------- EVALUATE --------------------------------- #
+
+    if (epoch+1)%5==0:
+        with torch.no_grad():
+            print("|------------EVALUATION STEP-------------|")
+            iterate(val_load,True)
