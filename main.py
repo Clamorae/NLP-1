@@ -12,10 +12,9 @@ from sklearn.metrics import f1_score
 PATH = "./NLP/NLP-1/"
 BATCH_SIZE = 16
 
-word_emb_dim = 45
 epochs = 20
 learning_rate = 0.01
-windows = 7
+windows = 2
 layer_dim = 128
 hidden_dim = 128
 dropout = 0.3
@@ -61,6 +60,7 @@ val_loader = Loader(PATH+"dev.txt")
 
 # ---------------------------- DATA EMBEDDING ---------------------------- #
 
+word_emb_dim = max(len(seq) for seq in train_loader.getItem()) + 2*windows
 embedding_model = Word2Vec(sentences=train_loader.getItem(),vector_size=word_emb_dim,window=windows,min_count=1,workers=8,sg=1)
 word_embedding = [[0.5] * word_emb_dim, [0.] * word_emb_dim]
 
@@ -202,3 +202,37 @@ for epoch in range(epochs):
         with torch.no_grad():
             print("|------------EVALUATION STEP-------------|")
             iterate(val_load,True)
+
+
+# -------------------------------- PREDICTION -------------------------------- #
+print("TESTING")
+
+test_item = []
+
+with open(PATH+"test-submit.txt",'r') as f:
+    lines = f.readlines()
+sentence = []
+for line in lines:
+    if line!='\n': 
+        separate = line.split('\t')
+        sentence.append(separate[0])
+
+
+    else:
+        test_item.append(sentence)
+        sentence = []
+
+test_item = addPadding(test_item,max_size,windows)
+test_word_embedded = encoder(test_item,word2index,word_embedding)
+
+test_input = torch.Tensor(test_word_embedded).float()
+
+submit = ""
+for line,sent in zip(test_input,test_item):
+    with torch.no_grad():
+        outputs = rnn(line)
+        for word,item in zip(outputs,sent):
+            if item != "<PAD>":
+                submit = submit + item[:-1] + " = " + index2target[torch.argmax(word)] +"\n"
+
+print(submit)
