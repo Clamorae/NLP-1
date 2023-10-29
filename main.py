@@ -9,6 +9,7 @@ from gensim.models import Word2Vec
 from sklearn.metrics import f1_score
 
 # --------------------------------- CONSTANT --------------------------------- #
+
 PATH = "./NLP/NLP-1/"
 BATCH_SIZE = 16
 
@@ -20,6 +21,7 @@ hidden_dim = 128
 dropout = 0.3
 
 # ------------------------------- DATA LOADING ------------------------------ #
+
 class Loader():
     def __init__(self, path) -> None:
         self.item = []
@@ -125,6 +127,7 @@ val_input = torch.Tensor(val_word_embedded).float()
 val_targets = torch.Tensor(val_int).long()
 val_dataset = TensorDataset(val_input,val_targets)
 val_load = DataLoader(val_dataset,batch_size=BATCH_SIZE, shuffle=True)
+
 # ------------------------------- RNN CREATION ------------------------------- #
 
 class RNN(nn.Module):
@@ -135,9 +138,7 @@ class RNN(nn.Module):
         self.layer_dim = layer_dim
         self.input_dim = input_dim
         
-        # RNN
         self.gru = nn.GRU(input_size=input_dim,hidden_size=hidden_dim,dropout=dropout_rate)
-        # Readout layer
         self.fc = nn.Linear(hidden_dim, output_dim)
         self.dropout = nn.Dropout(p=dropout_rate)
 
@@ -183,14 +184,14 @@ def iterate(loader, isEval = False):
     average_loss = sum_loss / len(loader)
     sum_loss += loss.item()
     accuracy = (correct/ total) * 100.0
-    print(f"|-------------Epoch [{epoch + 1}/{epochs}]--------------|\n Loss: {average_loss:.4f},\n Accuracy: {accuracy:.2f}%")
     f1_scores = f1_score(all_actual, all_predicted, average=None)
-
-    # for i in range(nb_class):
-    #     print(f"F1 Score (Class {index2target[i]}): {f1_scores[i]*100:.2f}%")
-
     average_f1 = sum(f1_scores) / len(f1_scores)
-    print(f" Average F1 Score: {average_f1*100:.2f}%")
+
+    if isEval == True:
+        print(f"|--------------Validation----------------|\n Loss: {average_loss:.4f},\n Accuracy: {accuracy:.2f}%")
+        print(f" Average F1 Score: {average_f1*100:.2f}%")
+    else:
+        print(f"|-------------Epoch [{epoch + 1}/{epochs}]--------------|\n Loss: {average_loss:.4f},\n Accuracy: {accuracy:.2f}%")
     print("|----------------------------------------|\n\n")
 
 for epoch in range(epochs):
@@ -205,7 +206,6 @@ for epoch in range(epochs):
 
 
 # -------------------------------- PREDICTION -------------------------------- #
-print("TESTING")
 
 test_item = []
 
