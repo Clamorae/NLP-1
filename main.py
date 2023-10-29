@@ -233,7 +233,7 @@ for line,sent in zip(test_input,test_item):
         outputs = rnn(line)
         for word,item in zip(outputs,sent):
             if item != "<PAD>":
-                submit = submit + item[:-1] + " = " + index2target[torch.argmax(word)] +"\n"
+                submit = submit + item[:-1] + "	" + index2target[torch.argmax(word)] +"\n"
 
 print(submit)
 
