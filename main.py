@@ -236,3 +236,6 @@ for line,sent in zip(test_input,test_item):
                 submit = submit + item[:-1] + " = " + index2target[torch.argmax(word)] +"\n"
 
 print(submit)
+
+with open(PATH + "test-submit.txt","w") as f:
+    f.write(submit)
