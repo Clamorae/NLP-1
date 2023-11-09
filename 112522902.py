@@ -15,7 +15,7 @@ BATCH_SIZE = 16
 
 epochs = 20
 learning_rate = 0.01
-windows = 2
+windows = 5
 layer_dim = 128
 hidden_dim = 128
 dropout = 0.3
@@ -26,6 +26,7 @@ class Loader():
     def __init__(self, path) -> None:
         self.item = []
         self.target = []
+        self.mask = []
 
         with open(path,'r') as f:
             lines = f.readlines()
@@ -35,13 +36,13 @@ class Loader():
             if line!='\n': 
                 separate = line.split('\t')
                 if separate[0] not in string.punctuation and separate[0][0]!="@":
-                    sentence.append(separate[0])
-                    label.append(separate[1].split('\n')[0])
+                    for char in separate[0]:
+                        sentence.append(separate[0])
+                        label.append(separate[1].split('\n')[0])
 
             else:
-                if all(i == label[0] for i in label) == False:
-                    self.item.append(sentence)
-                    self.target.append(label)
+                self.item.append(sentence)
+                self.target.append(label)
                 sentence = []
                 label = []
         
@@ -52,10 +53,14 @@ class Loader():
         return self.target
     
     def setItem(self,item):
-        self.item=item
+        self.item=item[0]
+        self.mask = item[1]
+    
+    def getMask(self):
+        return self.mask
     
     def setLabel(self, label):
-        self.target = label
+        self.target = label[0]
 
 train_loader = Loader(PATH+"train.txt")
 val_loader = Loader(PATH+"dev.txt")
@@ -100,11 +105,14 @@ max_size = max(len(seq) for seq in train_loader.getItem())
 
 def addPadding(data, max_size, windows):
     padded_data = []
+    masked_data = []
     for line in data:
         diff = max_size - len(line)
         padded_line = ['<PAD>'] * windows + line + ['<PAD>'] * (windows + diff)
         padded_data.append(padded_line)
-    return padded_data
+        masked_line = [0]*windows + [1]*len(line) + [0] * (windows + diff)
+        masked_data.append(masked_line)
+    return padded_data, masked_data
 
 train_loader.setItem(addPadding(train_loader.getItem(),max_size,windows))
 train_loader.setLabel(addPadding(train_loader.getLabel(),max_size,windows))
@@ -163,11 +171,13 @@ def iterate(loader, isEval = False):
     all_predicted = []
     all_actual = []
 
+    i=0
+    mask = train_loader.getMask()
     for sentence, label in loader:
 
         optimizer.zero_grad()   
         outputs = rnn(sentence)
-        loss = criterion(outputs.view(-1, 22),label.view(-1))
+        loss = criterion(outputs.view(-1, 22)[mask[i]],label.view(-1)[mask[i]])
         if isEval == False:    
             loss.backward()
             optimizer.step()
@@ -179,6 +189,8 @@ def iterate(loader, isEval = False):
 
         all_predicted.extend(predicted.view(-1).cpu().numpy())
         all_actual.extend(label.view(-1).cpu().numpy())
+
+        i+=1
 
 
     average_loss = sum_loss / len(loader)
@@ -222,7 +234,7 @@ for line in lines:
         test_item.append(sentence)
         sentence = []
 
-test_item = addPadding(test_item,max_size,windows)
+test_item,test_mask = addPadding(test_item,max_size,windows)
 test_word_embedded = encoder(test_item,word2index,word_embedding)
 
 test_input = torch.Tensor(test_word_embedded).float()
@@ -233,6 +245,8 @@ for line,sent in zip(test_input,test_item):
         outputs = rnn(line)
         for word,item in zip(outputs,sent):
             if item != "<PAD>":
+                if torch.argmax(word)==0:
+                    word[0] = -999
                 submit = submit + item[:-1] + "	" + index2target[torch.argmax(word)] +"\n"
 
 print(submit)
